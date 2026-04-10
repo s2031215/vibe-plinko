@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no"
+    />
+    <title>SuperBall</title>
+    <!-- Load standard pixel font -->
+    <link
+      href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap"
+      rel="stylesheet"
+    />
+    <style>
+      body {
+        margin: 0;
+        padding: 0;
+        background-color: #000;
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        height: 100vh;
+        overflow: hidden;
+        /* Prevent text selection */
+        user-select: none;
+        -webkit-user-select: none;
+      }
+      #game-container {
+        width: 100vw;
+        height: 100vh;
+        display: flex;
+        justify-content: center;
+        align-items: center;
+      }
+      /* Hide the original font rendering so it loads before canvas uses it */
+      #font-loader {
+        font-family: 'Press Start 2P';
+        color: transparent;
+        position: absolute;
+        top: -9999px;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="font-loader">.</div>
+    <div id="game-container"></div>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>
