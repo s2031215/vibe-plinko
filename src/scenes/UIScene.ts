@@ -4,16 +4,18 @@ import { rollRound, RoundResultData } from '../rng/RoundResult';
 type GameState = 'idle' | 'betting' | 'charging' | 'in_flight';
 
 export class UIScene extends Phaser.Scene {
-  private _credits: number = 20;
+  private _credits: number = 100;
   private _state: GameState = 'idle';
   private _betAmount: number = 0;
   private _chargeStartTime: number = 0;
+  private _debugMultiBall: boolean = false;
 
   // UI Elements that update
   private _scoreText!: Phaser.GameObjects.Text;
   private _multiplierLEDs: Phaser.GameObjects.Image[] = [];
   private _statusText!: Phaser.GameObjects.Text;
   private _chargeBarFill!: Phaser.GameObjects.Rectangle;
+  private _potentialWinText!: Phaser.GameObjects.Text;
 
   // Lever elements
   private _leverHandle!: Phaser.GameObjects.Arc;
@@ -36,6 +38,13 @@ export class UIScene extends Phaser.Scene {
 
     // Example: Bind insert beads button
     // The GameScene handles logic, UIScene just reads/sends events
+
+    this.onInsertBeads();
+
+    this.input.keyboard?.on('keydown-B', () => {
+      this._debugMultiBall = !this._debugMultiBall;
+      this.setStatusText(this._debugMultiBall ? 'DEBUG: MULTIBALL' : 'DEBUG: OFF', '#ffb300');
+    });
   }
 
   override update(time: number, _delta: number): void {
@@ -49,6 +58,7 @@ export class UIScene extends Phaser.Scene {
       this._leverHighlight.y = newY;
 
       this._chargeBarFill.scaleY = ratio;
+      this.scene.get('GameScene').events.emit('spring_charge', ratio);
       if (ratio === 1) {
         this.setStatusText('MAX POWER!', '#ff2200');
         this._chargeBarFill.fillColor = 0xff2200;
@@ -114,29 +124,24 @@ export class UIScene extends Phaser.Scene {
     this.add.rectangle(0, BOTTOM_Y, 480, 120, 0x1a1e2a).setOrigin(0);
     this.add.rectangle(0, BOTTOM_Y, 480, 3, 0xffb300).setOrigin(0);
 
-    // Insert Beads button (charcoal)
-    const insertBtn = this.add
-      .rectangle(100, BOTTOM_Y + 60, 140, 60, 0x4a5060)
-      .setInteractive({ cursor: 'pointer' });
-    insertBtn.setStrokeStyle(4, 0x3a3f50);
-    this.add
-      .text(100, BOTTOM_Y + 60, 'INSERT\nBEADS', {
+    // Potential win indicator
+    this.add.rectangle(90, BOTTOM_Y + 60, 140, 60, 0x0d1520).setOrigin(0.5);
+    this._potentialWinText = this.add
+      .text(90, BOTTOM_Y + 60, 'BET x MULT\n0 x 0 = 0', {
         fontFamily: '"Press Start 2P"',
-        fontSize: '14px',
-        color: '#ffffff',
+        fontSize: '11px',
+        color: '#b0b8c8',
         align: 'center',
       })
       .setOrigin(0.5);
 
-    insertBtn.on('pointerdown', this.onInsertBeads, this);
-
     // Raise button (deep blue)
     const raiseBtn = this.add
-      .rectangle(270, BOTTOM_Y + 60, 140, 60, 0x2a4a8a)
+      .rectangle(240, BOTTOM_Y + 74, 140, 60, 0x2a4a8a)
       .setInteractive({ cursor: 'pointer' });
     raiseBtn.setStrokeStyle(4, 0x1a3a6a);
     this.add
-      .text(270, BOTTOM_Y + 60, 'RAISE', {
+      .text(240, BOTTOM_Y + 74, 'RAISE', {
         fontFamily: '"Press Start 2P"',
         fontSize: '14px',
         color: '#ffffff',
@@ -185,6 +190,16 @@ export class UIScene extends Phaser.Scene {
 
         this._roundData = rollRound();
 
+        this.scene.get('GameScene').events.emit('prepare_ball');
+
+        if (this._potentialWinText) {
+          this._potentialWinText.setText(
+            `BET x MULT\n${this._betAmount} x ${this._roundData.multiplier} = ${
+              this._betAmount * this._roundData.multiplier
+            }`
+          );
+        }
+
         // Update multiplier LEDs
         const mults = [2, 4, 6, 8, 10];
         const ledIndex = mults.indexOf(this._roundData.multiplier);
@@ -205,6 +220,14 @@ export class UIScene extends Phaser.Scene {
       if (this._credits >= 5) {
         this.updateCredits(this._credits - 5);
         this._betAmount += 5;
+
+        if (this._roundData && this._potentialWinText) {
+          this._potentialWinText.setText(
+            `BET x MULT\n${this._betAmount} x ${this._roundData.multiplier} = ${
+              this._betAmount * this._roundData.multiplier
+            }`
+          );
+        }
       }
     }
   }
@@ -223,6 +246,7 @@ export class UIScene extends Phaser.Scene {
       this._state = 'in_flight';
       this.setStatusText('IN FLIGHT...', '#b0b8c8');
       this._chargeBarFill.scaleY = 0;
+      this.scene.get('GameScene').events.emit('spring_charge', 0);
 
       const chargeDuration = this.time.now - this._chargeStartTime;
       const power = Phaser.Math.Clamp(chargeDuration / 1500, 0.08, 1.0); // max 1.5s, min 8%
@@ -232,7 +256,8 @@ export class UIScene extends Phaser.Scene {
       this._leverHighlight.y = this._leverBaseY;
 
       // Tell game scene to launch
-      this.scene.get('GameScene').events.emit('launchBall', power, this._roundData);
+      const ballCount = this._debugMultiBall ? 10 : 1;
+      this.scene.get('GameScene').events.emit('launchBall', power, this._roundData, ballCount);
     }
   }
 
@@ -244,10 +269,14 @@ export class UIScene extends Phaser.Scene {
   }
 
   private onRoundComplete(data: { isWin: boolean; multiplier: number; tunnelIndex: number }): void {
-    if (data.isWin) {
-      // Calculate payout
-      const payout = this._betAmount * data.multiplier;
+    const payout = this._betAmount * data.multiplier;
 
+    this.setStatusText(
+      data.isWin ? `WIN +${payout} BEADS` : 'NO WIN / TRY AGAIN',
+      data.isWin ? '#ffb300' : '#b0b8c8'
+    );
+
+    if (data.isWin) {
       // Calculate start position from tunnelIndex
       const slotWidth = 426 / 12;
       const tunnelX = 10 + data.tunnelIndex * slotWidth + slotWidth / 2;
@@ -269,14 +298,15 @@ export class UIScene extends Phaser.Scene {
           bead.destroy();
           this.sound.play('sfx_win');
           this.updateCredits(this._credits + payout);
-          this.showFloatText(`+${payout}`, 330, 60, '#FFB300');
+          this.showFloatText(`+${payout} BEADS`, 330, 60, '#FFB300');
           this.playBeadWinFX();
           this.resetRoundState();
         },
       });
     } else {
       this.sound.play('sfx_lose');
-      this.resetRoundState();
+      this.showFloatText('+0 BEADS', 330, 60, '#888ea0');
+      this.time.delayedCall(600, () => this.resetRoundState());
     }
   }
 
@@ -288,6 +318,11 @@ export class UIScene extends Phaser.Scene {
     this._state = 'idle';
     this._betAmount = 0;
     this._roundData = undefined;
+
+    if (this._potentialWinText) {
+      this._potentialWinText.setText('BET x MULT\n0 x 0 = 0');
+      this._potentialWinText.setColor('#b0b8c8');
+    }
 
     if (this._credits < 5) {
       this.showGameOver();
@@ -387,9 +422,10 @@ export class UIScene extends Phaser.Scene {
 
     btn.on('pointerdown', () => {
       this._gameOverContainer?.setVisible(false);
-      this.updateCredits(20);
+      this.updateCredits(100);
       this._state = 'idle';
       this.setStatusText('INSERT BEADS', '#b0b8c8');
+      this.onInsertBeads();
     });
   }
 

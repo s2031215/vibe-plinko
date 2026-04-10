@@ -45,19 +45,19 @@ export class PreloadScene extends Phaser.Scene {
     g.fillCircle(4, 4, 3); // spec
     g.generateTexture('ball', 20, 20);
 
-    // 2. Peg (12x12) bounds (scaled down to match smaller hitbox)
+    // 2. Peg (14x14) bounds (scaled to match hitbox)
     g.clear();
     g.fillStyle(0x1a1a2e, 0.8);
-    g.fillCircle(7, 7, 5); // shadow offset
+    g.fillCircle(8, 8, 6); // shadow offset
     g.fillStyle(0x3a3f50);
-    g.fillCircle(6, 6, 4); // base body
+    g.fillCircle(7, 7, 5); // base body
     g.fillStyle(0x6a6e78);
-    g.fillCircle(6, 6, 3); // mid ring
+    g.fillCircle(7, 7, 4); // mid ring
     g.fillStyle(0xb0b8c8);
-    g.fillCircle(5, 5, 2); // highlight
+    g.fillCircle(6, 6, 3); // highlight
     g.fillStyle(0xffffff);
-    g.fillRect(4, 4, 2, 2); // pin highlight
-    g.generateTexture('peg', 12, 12);
+    g.fillRect(5, 5, 2, 2); // pin highlight
+    g.generateTexture('peg', 14, 14);
 
     // 3. Peg Bloom (32x32)
     g.clear();

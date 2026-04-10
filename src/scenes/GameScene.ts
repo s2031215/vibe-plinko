@@ -3,7 +3,28 @@ import { RoundResultData } from '../rng/RoundResult';
 
 export class GameScene extends Phaser.Scene {
   private _ball: Phaser.Physics.Matter.Sprite | undefined;
+  private _extraBalls: Phaser.Physics.Matter.Sprite[] = [];
+  private _activeBalls: Set<Phaser.Physics.Matter.Sprite> = new Set();
+  private _noBallCollisionGroup: number | undefined;
+  private _lastStopLogTime: number = 0;
+  private _lastStuckShakeTime: number = 0;
+  private _ballLastMotion: Map<Phaser.Physics.Matter.Sprite, number> = new Map();
+  private _settlingBalls: Set<Phaser.Physics.Matter.Sprite> = new Set();
   private _currentRoundData: RoundResultData | undefined;
+  private _pendingOutcome:
+    | {
+        isWin: boolean;
+        multiplier: number;
+        tunnelIndex: number;
+      }
+    | undefined;
+  private _launchTime: number | undefined;
+  private _lastMotionTime: number | undefined;
+  private readonly _springX: number = 453;
+  private readonly _springTop: number = 668;
+  private readonly _springBottom: number = 722;
+  private _springCompression: number = 0;
+  private _springGraphics!: Phaser.GameObjects.Graphics;
 
   private _tunnelLEDs: Phaser.GameObjects.Image[] = [];
 
@@ -22,6 +43,8 @@ export class GameScene extends Phaser.Scene {
 
     // Launching logic hooks
     this.events.on('launchBall', this.launchBall, this);
+    this.events.on('prepare_ball', this.prepareBall, this);
+    this.events.on('spring_charge', this.setSpringCompression, this);
     this.events.on('ui_update_tunnels', this.updateTunnels, this);
 
     this.matter.world.on('collisionstart', (event: MatterJS.IEventCollision<MatterJS.Body>) => {
@@ -40,35 +63,22 @@ export class GameScene extends Phaser.Scene {
       (window as any).debug_ball_vx = this._ball.body?.velocity.x;
       (window as any).debug_ball_vy = this._ball.body?.velocity.y;
 
-      const body = this._ball.body as MatterJS.BodyType;
+      const activeBalls = this._activeBalls.size > 0 ? Array.from(this._activeBalls) : [this._ball];
+      for (const ball of activeBalls) {
+        if (!ball) continue;
+        const body = ball.body as MatterJS.BodyType | undefined;
+        if (!body) continue;
 
-      if (body) {
-        // 1. Strict Speed Limit (Clamp velocity to prevent tunneling and phantom energy launches)
-        // Set MAX_SPEED high enough to allow the full power launch (which is up to -45 vy)
-        const MAX_SPEED = 50;
-        const currentSpeed = Math.sqrt(body.velocity.x ** 2 + body.velocity.y ** 2);
-        if (currentSpeed > MAX_SPEED) {
-          const scale = MAX_SPEED / currentSpeed;
-          this.matter.body.setVelocity(body, {
-            x: body.velocity.x * scale,
-            y: body.velocity.y * scale,
-          });
-        }
+        this.handleBallMotion(ball, body);
+      }
 
-        // 2. Prevent perfect balancing on pegs
-        if (this._ball.y > 200 && this._ball.y < 640) {
-          if (Math.abs(body.velocity.y) < 0.2 && Math.abs(body.velocity.x) < 0.2) {
-            const forceX = Math.random() > 0.5 ? 0.02 : -0.02;
-            this._ball.applyForce(new Phaser.Math.Vector2(forceX, 0.01));
-          }
-        }
-
-        // 3. Failed launch detection (fell back down shooter lane)
-        if (this._ball.y > 740 && this._ball.x > 430) {
-          this.scene.get('UIScene').events.emit('failed_launch');
-          this._ball.destroy();
-          this._ball = undefined;
-        }
+      // Failed launch detection (fell back down shooter lane)
+      if (this._ball && this._ball.y > 740 && this._ball.x > 430) {
+        this.events.emit('failed_launch');
+        this._ball.destroy();
+        this._ball = undefined;
+        this._launchTime = undefined;
+        this._lastMotionTime = undefined;
       }
     }
   }
@@ -111,6 +121,10 @@ export class GameScene extends Phaser.Scene {
       { isStatic: true }
     );
     this.matter.add.circle(LANE_GUIDE_X + 2, LANE_GUIDE_Y, 2, { isStatic: true, restitution: 0.4 });
+
+    // Shooter Lane Spring
+    this._springGraphics = this.add.graphics();
+    this.drawSpring();
 
     // Solid Curved Deflector Block in top right
     g.fillStyle(0x1a1e2a); // gunmetal cabinet color
@@ -209,7 +223,7 @@ export class GameScene extends Phaser.Scene {
         if (px < 420) {
           this.matter.add.image(px, py, 'peg', undefined, {
             isStatic: true,
-            circleRadius: 4, // Smaller hitbox (reduced from 6)
+            circleRadius: 5, // Slightly larger for more contact/rng
             restitution: 0.05, // extremely low elasticity so ball doesn't bounce off
             friction: 0.05,
             label: 'peg', // Give it a label so we can identify collisions
@@ -224,10 +238,54 @@ export class GameScene extends Phaser.Scene {
     // Y: 648 -> 735
     const TUNNEL_Y = 648;
     const TUNNEL_HEIGHT = 86;
+    const TUNNEL_WIDTH = 426;
 
-    this.add.rectangle(10, TUNNEL_Y, 426, TUNNEL_HEIGHT, 0x050b14).setOrigin(0);
+    this.add.rectangle(10, TUNNEL_Y, TUNNEL_WIDTH, TUNNEL_HEIGHT, 0x050b14).setOrigin(0);
 
-    const slotWidth = 426 / 12; // 35.5px
+    const slotWidth = TUNNEL_WIDTH / 12; // 35.5px
+
+    // Full-width tunnel catcher sensor to avoid missed slot sensors
+    this.matter.add.rectangle(
+      10 + TUNNEL_WIDTH / 2,
+      TUNNEL_Y + TUNNEL_HEIGHT / 2,
+      TUNNEL_WIDTH,
+      TUNNEL_HEIGHT,
+      {
+        isStatic: true,
+        isSensor: true,
+        label: 'tunnel_catcher',
+      }
+    );
+
+    // Solid floor so the ball can settle in a tunnel
+    this.matter.add.rectangle(
+      10 + TUNNEL_WIDTH / 2,
+      TUNNEL_Y + TUNNEL_HEIGHT - 2,
+      TUNNEL_WIDTH,
+      4,
+      {
+        isStatic: true,
+        restitution: 0,
+      }
+    );
+
+    // Corner guides to prevent wall wedging in tunnels
+    const guideWidth = 14;
+    const guideHeight = 4;
+    const guideY = TUNNEL_Y + TUNNEL_HEIGHT - 8;
+    const guideAngle = Phaser.Math.DegToRad(30);
+    this.matter.add.rectangle(10 + 6, guideY, guideWidth, guideHeight, {
+      isStatic: true,
+      angle: guideAngle,
+      restitution: 0.05,
+      friction: 0.2,
+    });
+    this.matter.add.rectangle(10 + TUNNEL_WIDTH - 6, guideY, guideWidth, guideHeight, {
+      isStatic: true,
+      angle: -guideAngle,
+      restitution: 0.05,
+      friction: 0.2,
+    });
 
     for (let i = 0; i < 12; i++) {
       const x = 10 + i * slotWidth;
@@ -243,7 +301,7 @@ export class GameScene extends Phaser.Scene {
       this._tunnelLEDs.push(led);
 
       // Add a sensor at the bottom of the tunnel to detect the ball
-      const sensorHeight = 10;
+      const sensorHeight = TUNNEL_HEIGHT;
       this.matter.add.rectangle(
         x + slotWidth / 2,
         TUNNEL_Y + TUNNEL_HEIGHT - sensorHeight / 2,
@@ -264,39 +322,134 @@ export class GameScene extends Phaser.Scene {
     });
   }
 
-  public launchBall(power: number, roundData: RoundResultData): void {
-    // If ball exists, destroy it before spawning a new one
-    if (this._ball) {
-      this._ball.destroy();
-    }
-
+  public launchBall(power: number, roundData: RoundResultData, count: number = 1): void {
     this.sound.play('sfx_launch');
 
     this._currentRoundData = roundData;
+    this._launchTime = this.time.now;
+    this._lastMotionTime = this.time.now;
+    this._pendingOutcome = undefined;
 
-    // Spawn ball from shooter lane
-    const spawnX = 453;
-    const spawnY = 720;
+    this.clearExtraBalls();
+    this._activeBalls.clear();
 
-    this._ball = this.matter.add.sprite(spawnX, spawnY, 'ball', undefined, {
-      circleRadius: 7, // Reduced from 10 to make hitbox smaller
-      restitution: 0.1, // Reduced to 0.1 to eliminate high bounces on pegs
-      friction: 0.001,
-      frictionAir: 0.005, // Slightly increased from 0.001 to bleed off speed continuously as it drops
-      label: 'ball',
-    });
-    // Prevent the ball from ever sleeping
-    if (this._ball.body) {
-      this.matter.body.set(this._ball.body as MatterJS.BodyType, 'sleepThreshold', -1);
+    const noBallCollision = count > 1;
+    if (noBallCollision && this._noBallCollisionGroup === undefined) {
+      this._noBallCollisionGroup = this.matter.world.nextGroup(true);
     }
 
-    // Apply velocity proportional to charge power
-    // Shooting straight up the lane
+    const spawnX = this._springX;
+    const compressionPixels = 14 * this._springCompression;
+    const spawnY = this._springTop - 8 + compressionPixels;
+
+    if (this._ball && this._ball.body && this._ball.body.isStatic) {
+      this._ball.setPosition(spawnX, spawnY);
+    } else {
+      if (this._ball) {
+        this._ball.destroy();
+      }
+
+      this._ball = this.matter.add.sprite(spawnX, spawnY, 'ball', undefined, {
+        circleRadius: 7, // Reduced from 10 to make hitbox smaller
+        restitution: 0.1, // Reduced to 0.1 to eliminate high bounces on pegs
+        friction: 0.001,
+        frictionAir: 0.005, // Slightly increased from 0.001 to bleed off speed continuously as it drops
+        label: 'ball',
+      });
+      // Prevent the ball from ever sleeping
+      if (this._ball.body) {
+        this.matter.body.set(this._ball.body as MatterJS.BodyType, 'sleepThreshold', -1);
+      }
+    }
+
+    this._ball.setStatic(false);
+    this._ball.setIgnoreGravity(false);
+    this.applyBallCollisionGroup(this._ball, noBallCollision);
+    this._activeBalls.add(this._ball);
+
     const minVy = -25;
     const maxVy = -45;
     const vy = minVy + (maxVy - minVy) * power;
 
     this._ball.setVelocity(0, vy);
+
+    const extraCount = Math.max(0, Math.floor(count) - 1);
+    const spread = 12;
+    for (let i = 0; i < extraCount; i++) {
+      const offsetX = (i - (extraCount - 1) / 2) * (spread / Math.max(1, extraCount));
+      const extra = this.matter.add.sprite(spawnX + offsetX, spawnY, 'ball', undefined, {
+        circleRadius: 7,
+        restitution: 0.1,
+        friction: 0.001,
+        frictionAir: 0.005,
+        label: 'ball',
+      });
+      if (extra.body) {
+        this.matter.body.set(extra.body as MatterJS.BodyType, 'sleepThreshold', -1);
+      }
+      this.applyBallCollisionGroup(extra, noBallCollision);
+      extra.setVelocity(0, vy);
+      this._extraBalls.push(extra);
+      this._activeBalls.add(extra);
+    }
+  }
+
+  public prepareBall(): void {
+    this.clearAllBalls();
+
+    const spawnX = this._springX;
+    const compressionPixels = 14 * this._springCompression;
+    const spawnY = this._springTop - 8 + compressionPixels;
+
+    this._ball = this.matter.add.sprite(spawnX, spawnY, 'ball', undefined, {
+      circleRadius: 7,
+      restitution: 0.1,
+      friction: 0.001,
+      frictionAir: 0.005,
+      label: 'ball',
+    });
+
+    if (this._ball.body) {
+      this.matter.body.set(this._ball.body as MatterJS.BodyType, 'sleepThreshold', -1);
+    }
+
+    this._ball.setStatic(true);
+    this._ball.setIgnoreGravity(true);
+    this.applyBallCollisionGroup(this._ball, false);
+  }
+
+  public setSpringCompression(ratio: number): void {
+    this._springCompression = Phaser.Math.Clamp(ratio, 0, 1);
+    this.drawSpring();
+  }
+
+  private drawSpring(): void {
+    if (!this._springGraphics) return;
+
+    const springX = this._springX;
+    const springTop = this._springTop;
+    const springBottom = this._springBottom;
+    const springSegments = 7;
+    const springWidth = 10;
+    const compression = 14 * this._springCompression;
+
+    const topY = springTop + compression;
+    const bottomY = springBottom;
+
+    this._springGraphics.clear();
+    this._springGraphics.lineStyle(2, 0x888ea0);
+    this._springGraphics.beginPath();
+    for (let i = 0; i <= springSegments; i++) {
+      const t = i / springSegments;
+      const y = topY + (bottomY - topY) * t;
+      const x = springX + (i % 2 === 0 ? -springWidth / 2 : springWidth / 2);
+      if (i === 0) this._springGraphics.moveTo(x, y);
+      else this._springGraphics.lineTo(x, y);
+    }
+    this._springGraphics.strokePath();
+    this._springGraphics.fillStyle(0x3a3f50);
+    this._springGraphics.fillRect(springX - 8, topY - 4, 16, 4);
+    this._springGraphics.fillRect(springX - 8, bottomY, 16, 6);
   }
 
   public beginRound(): void {
@@ -304,23 +457,34 @@ export class GameScene extends Phaser.Scene {
   }
 
   private checkTunnelCollision(bodyA: MatterJS.BodyType, bodyB: MatterJS.BodyType): void {
-    if (!this._ball || !this._currentRoundData) return;
+    if (!this._currentRoundData) return;
 
-    // Check if either body is the ball
-    const isBallA = bodyA.gameObject === this._ball;
-    const isBallB = bodyB.gameObject === this._ball;
+    const ball = this.getActiveBall(bodyA, bodyB);
+    if (!ball) return;
 
-    if (!isBallA && !isBallB) return;
+    const sensorBody = bodyA.gameObject === ball ? bodyB : bodyA;
 
-    // Identify which body is the tunnel sensor
-    const sensorBody = isBallA ? bodyB : bodyA;
+    if (!sensorBody.label) return;
 
     // The tunnel sensor's label should start with 'tunnel_sensor_'
-    if (sensorBody.label && sensorBody.label.startsWith('tunnel_sensor_')) {
+    if (sensorBody.label.startsWith('tunnel_sensor_')) {
       const tunnelIndexStr = sensorBody.label.replace('tunnel_sensor_', '');
       const tunnelIndex = parseInt(tunnelIndexStr, 10);
 
-      this.handleTunnelEntry(tunnelIndex);
+      this.handleTunnelEntry(ball, tunnelIndex);
+      return;
+    }
+
+    if (sensorBody.label === 'tunnel_catcher') {
+      const TUNNEL_X = 10;
+      const TUNNEL_WIDTH = 426;
+      const slotWidth = TUNNEL_WIDTH / 12;
+      const relativeX = this._ball.x - TUNNEL_X;
+
+      if (relativeX >= 0 && relativeX <= TUNNEL_WIDTH) {
+        const tunnelIndex = Math.min(11, Math.max(0, Math.floor(relativeX / slotWidth)));
+        this.handleTunnelEntry(ball, tunnelIndex);
+      }
     }
   }
 
@@ -367,28 +531,190 @@ export class GameScene extends Phaser.Scene {
     this.cameras.main.shake(100, 0.002);
   }
 
-  private handleTunnelEntry(tunnelIndex: number): void {
+  private handleTunnelEntry(ball: Phaser.Physics.Matter.Sprite, tunnelIndex: number): void {
     if (!this._currentRoundData) return;
+    if (!this._activeBalls.has(ball)) return;
+    if (this._settlingBalls.has(ball)) return;
+    this._settlingBalls.add(ball);
 
     console.log('ROUND_COMPLETE_TUNNEL_ENTRY');
 
-    // Verify it hit a winning tunnel
     const isWin = this._currentRoundData.winningTunnels.includes(tunnelIndex);
-    // Determine payout (We'll assume the bet was tracked by UI, but we can pass back multiplier)
     const multiplier = isWin ? this._currentRoundData.multiplier : 0;
 
-    // Cleanup the ball
+    if (!this._pendingOutcome) {
+      this._pendingOutcome = { isWin, multiplier, tunnelIndex };
+    } else if (isWin && !this._pendingOutcome.isWin) {
+      this._pendingOutcome = { isWin: true, multiplier, tunnelIndex };
+    }
+
+    this.settleBallToTunnel(ball, tunnelIndex, () => {
+      this._activeBalls.delete(ball);
+      this._settlingBalls.delete(ball);
+      this.checkFinalizeRound();
+    });
+  }
+
+  private forceRoundEnd(): void {
+    if (!this._ball) return;
+
+    this.clearAllBalls();
+
+    this.updateTunnels([]);
+
+    this.events.emit('round_complete', {
+      isWin: false,
+      multiplier: 0,
+      tunnelIndex: 0,
+    });
+
+    this._currentRoundData = undefined;
+    this._launchTime = undefined;
+    this._lastMotionTime = undefined;
+    this._pendingOutcome = undefined;
+  }
+
+  private clearExtraBalls(): void {
+    if (this._extraBalls.length === 0) return;
+    for (const ball of this._extraBalls) {
+      this._ballLastMotion.delete(ball);
+      this._settlingBalls.delete(ball);
+      ball.destroy();
+    }
+    this._extraBalls = [];
+  }
+
+  private clearAllBalls(): void {
     if (this._ball) {
+      this._ballLastMotion.delete(this._ball);
+      this._settlingBalls.delete(this._ball);
       this._ball.destroy();
       this._ball = undefined;
     }
+    this.clearExtraBalls();
+    this._activeBalls.clear();
+    this._settlingBalls.clear();
+  }
 
-    // Reset visual tunnels
+  private handleBallMotion(ball: Phaser.Physics.Matter.Sprite, body: MatterJS.BodyType): void {
+    // 1. Strict Speed Limit (Clamp velocity to prevent tunneling and phantom energy launches)
+    // Set MAX_SPEED high enough to allow the full power launch (which is up to -45 vy)
+    const MAX_SPEED = 50;
+    const currentSpeed = Math.sqrt(body.velocity.x ** 2 + body.velocity.y ** 2);
+    if (currentSpeed > MAX_SPEED) {
+      const scale = MAX_SPEED / currentSpeed;
+      ball.setVelocity(body.velocity.x * scale, body.velocity.y * scale);
+    }
+
+    // Track motion time for debug/logging
+    if (currentSpeed > 0.2) {
+      this._lastMotionTime = this.time.now;
+      this._ballLastMotion.set(ball, this.time.now);
+    }
+
+    if (!this._currentRoundData) return;
+
+    // Debug: log if ball is stopped outside tunnels
+    const TUNNEL_Y = 648;
+    const TUNNEL_HEIGHT = 86;
+    if (currentSpeed < 0.05) {
+      const inTunnelBand = ball.y >= TUNNEL_Y && ball.y <= TUNNEL_Y + TUNNEL_HEIGHT;
+      if (!inTunnelBand && this.time.now - this._lastStopLogTime > 1000) {
+        console.log('DEBUG_BALL_STOPPED_OUTSIDE_TUNNEL', {
+          x: Math.round(ball.x),
+          y: Math.round(ball.y),
+          vx: Number(body.velocity.x.toFixed(3)),
+          vy: Number(body.velocity.y.toFixed(3)),
+        });
+        this._lastStopLogTime = this.time.now;
+      }
+    }
+
+    // Shake if ball is stuck outside tunnels
+    const inTunnelBand = ball.y >= TUNNEL_Y && ball.y <= TUNNEL_Y + TUNNEL_HEIGHT;
+    const lastMotion = this._ballLastMotion.get(ball) ?? this.time.now;
+    const stuckTime = this.time.now - lastMotion;
+    if (!inTunnelBand && stuckTime > 1200 && this.time.now - this._lastStuckShakeTime > 1500) {
+      this.cameras.main.shake(180, 0.004);
+      const nudgeX = (Math.random() - 0.5) * 0.02;
+      const nudgeY = -0.01 - Math.random() * 0.01;
+      ball.applyForce(new Phaser.Math.Vector2(nudgeX, nudgeY));
+      this._lastStuckShakeTime = this.time.now;
+    }
+  }
+
+  private applyBallCollisionGroup(
+    ball: Phaser.Physics.Matter.Sprite,
+    noBallCollision: boolean
+  ): void {
+    if (!noBallCollision || this._noBallCollisionGroup === undefined) return;
+    ball.setCollisionGroup(this._noBallCollisionGroup);
+  }
+
+  private finalizeRound(): void {
     this.updateTunnels([]);
 
-    // Inform UIScene
-    this.scene.get('UIScene').events.emit('round_complete', { isWin, multiplier, tunnelIndex });
+    const outcome =
+      this._pendingOutcome ?? ({ isWin: false, multiplier: 0, tunnelIndex: 0 } as const);
+
+    this.events.emit('round_complete', outcome);
 
     this._currentRoundData = undefined;
+    this._launchTime = undefined;
+    this._lastMotionTime = undefined;
+    this._pendingOutcome = undefined;
+    this._settlingBalls.clear();
+  }
+
+  private checkFinalizeRound(): void {
+    if (this._activeBalls.size === 0) {
+      this.finalizeRound();
+    }
+  }
+
+  private settleBallToTunnel(
+    ball: Phaser.Physics.Matter.Sprite,
+    tunnelIndex: number,
+    onComplete: () => void
+  ): void {
+    const TUNNEL_Y = 648;
+    const TUNNEL_HEIGHT = 86;
+    const TUNNEL_X = 10;
+    const TUNNEL_WIDTH = 426;
+    const slotWidth = TUNNEL_WIDTH / 12;
+    const tunnelCenterX = TUNNEL_X + tunnelIndex * slotWidth + slotWidth / 2;
+    const settleY = TUNNEL_Y + TUNNEL_HEIGHT - 12;
+
+    ball.setVelocity(0, 0.5);
+    ball.setAngularVelocity(0);
+    ball.setIgnoreGravity(false);
+
+    this.tweens.add({
+      targets: ball,
+      x: tunnelCenterX,
+      y: settleY,
+      duration: 520,
+      ease: 'Sine.easeOut',
+      onComplete: () => {
+        ball.setVelocity(0, 0);
+        ball.setAngularVelocity(0);
+        ball.setStatic(true);
+        ball.setIgnoreGravity(true);
+        onComplete();
+      },
+    });
+  }
+
+  private getActiveBall(
+    bodyA: MatterJS.BodyType,
+    bodyB: MatterJS.BodyType
+  ): Phaser.Physics.Matter.Sprite | undefined {
+    const gameObjectA = bodyA.gameObject as Phaser.Physics.Matter.Sprite | undefined;
+    if (gameObjectA && this._activeBalls.has(gameObjectA)) return gameObjectA;
+
+    const gameObjectB = bodyB.gameObject as Phaser.Physics.Matter.Sprite | undefined;
+    if (gameObjectB && this._activeBalls.has(gameObjectB)) return gameObjectB;
+
+    return undefined;
   }
 }

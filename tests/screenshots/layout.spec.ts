@@ -28,11 +28,6 @@ test.describe('SuperBall Layout Screenshots', () => {
 
   test('02-round-active-canvas', async ({ page }) => {
     await page.waitForTimeout(1000); // let initial load settle
-
-    // Simulating INSERT BEADS click (now at X: 100)
-    await page.mouse.click(100, 794);
-
-    // Wait 700ms settle
     await page.waitForTimeout(700);
 
     // Capture screenshot
@@ -44,9 +39,6 @@ test.describe('SuperBall Layout Screenshots', () => {
 
   test('03-ball-in-flight-canvas', async ({ page }) => {
     await page.waitForTimeout(1000); // let initial load settle
-
-    // Simulating INSERT BEADS click
-    await page.mouse.click(100, 794);
     await page.waitForTimeout(700);
 
     // Lever mousedown 800ms (now at X: 453)
@@ -79,8 +71,6 @@ test.describe('SuperBall Layout Screenshots', () => {
       }
     });
 
-    // Simulating INSERT BEADS click
-    await page.mouse.click(100, 794);
     await page.waitForTimeout(700);
 
     // Pull the lever 800ms
@@ -111,5 +101,28 @@ test.describe('SuperBall Layout Screenshots', () => {
     }
 
     expect(roundComplete).toBeTruthy();
+  });
+
+  test('05-multiball-debug-canvas', async ({ page }) => {
+    await page.waitForTimeout(1000);
+
+    // Toggle debug multiball mode
+    await page.keyboard.press('B');
+    await page.waitForTimeout(300);
+
+    // Pull the lever 800ms
+    await page.mouse.move(453, 794);
+    await page.mouse.down({ button: 'left' });
+    await page.mouse.move(453, 850);
+    await page.waitForTimeout(800);
+    await page.mouse.up();
+
+    // Wait for multi-ball to spread
+    await page.waitForTimeout(800);
+
+    const screenshotPath = 'tests/screenshots/output/05-multiball-debug-canvas.png';
+    await page.locator('canvas').screenshot({ path: screenshotPath });
+
+    expect(fs.existsSync(screenshotPath)).toBeTruthy();
   });
 });
