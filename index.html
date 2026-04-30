@@ -13,6 +13,9 @@
       rel="stylesheet"
     />
     <style>
+      :root {
+        --vh: 1vh;
+      }
       body {
         margin: 0;
         padding: 0;
@@ -20,18 +23,20 @@
         display: flex;
         justify-content: center;
         align-items: center;
-        height: 100vh;
+        height: calc(var(--vh, 1vh) * 100);
         overflow: hidden;
         /* Prevent text selection */
         user-select: none;
         -webkit-user-select: none;
+        touch-action: manipulation;
       }
       #game-container {
         width: 100vw;
-        height: 100vh;
+        height: calc(var(--vh, 1vh) * 100);
         display: flex;
         justify-content: center;
         align-items: center;
+        overflow: hidden;
       }
       /* Hide the original font rendering so it loads before canvas uses it */
       #font-loader {

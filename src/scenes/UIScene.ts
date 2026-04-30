@@ -4,6 +4,8 @@ import { rollRound, RoundResultData } from '../rng/RoundResult';
 type GameState = 'idle' | 'betting' | 'charging' | 'in_flight';
 
 export class UIScene extends Phaser.Scene {
+  private static readonly BASE_WIDTH = 480;
+  private static readonly BASE_HEIGHT = 854;
   private _credits: number = 100;
   private _state: GameState = 'idle';
   private _betAmount: number = 0;
@@ -31,6 +33,9 @@ export class UIScene extends Phaser.Scene {
   }
 
   create() {
+    this.applyViewport();
+    this.scale.on('resize', this.applyViewport, this);
+
     // Scaffold UI panels, buttons, LED strips, Lever
     this.createTopPanel();
     this.createBottomPanel();
@@ -190,7 +195,7 @@ export class UIScene extends Phaser.Scene {
 
         this._roundData = rollRound();
 
-        this.scene.get('GameScene').events.emit('prepare_ball');
+        this.scene.get('GameScene').events.emit('prepare_ball', this._roundData);
 
         if (this._potentialWinText) {
           this._potentialWinText.setText(
@@ -427,6 +432,14 @@ export class UIScene extends Phaser.Scene {
       this.setStatusText('INSERT BEADS', '#b0b8c8');
       this.onInsertBeads();
     });
+  }
+
+  private applyViewport(): void {
+    const { width, height } = this.scale;
+    const zoom = Math.min(width / UIScene.BASE_WIDTH, height / UIScene.BASE_HEIGHT);
+    const roundedZoom = Math.max(0.5, Math.floor(zoom * 100) / 100);
+    this.cameras.main.setZoom(roundedZoom);
+    this.cameras.main.centerOn(UIScene.BASE_WIDTH / 2, UIScene.BASE_HEIGHT / 2);
   }
 
   private showGameOver() {

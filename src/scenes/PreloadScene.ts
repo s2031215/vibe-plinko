@@ -1,21 +1,31 @@
 import Phaser from 'phaser';
 
 export class PreloadScene extends Phaser.Scene {
+  private static readonly BASE_WIDTH = 480;
+  private static readonly BASE_HEIGHT = 854;
+
   constructor() {
     super('PreloadScene');
   }
 
   preload() {
+    this.applyViewport();
+    this.scale.on('resize', this.applyViewport, this);
+
     // Generate synthesized sounds and graphic assets here
     // Example: Create ball texture, peg bloom textures, synth WebAudio
 
     // Draw loading text using pixel font
-    const { width, height } = this.scale;
-    const loadingText = this.add.text(width / 2, height / 2, 'LOADING...', {
-      fontFamily: '"Press Start 2P"',
-      fontSize: '24px',
-      color: '#FFB300',
-    });
+    const loadingText = this.add.text(
+      PreloadScene.BASE_WIDTH / 2,
+      PreloadScene.BASE_HEIGHT / 2,
+      'LOADING...',
+      {
+        fontFamily: '"Press Start 2P"',
+        fontSize: '24px',
+        color: '#FFB300',
+      }
+    );
     loadingText.setOrigin(0.5, 0.5);
 
     this.generateAssets();
@@ -26,6 +36,20 @@ export class PreloadScene extends Phaser.Scene {
     // Launch game scene and UI scene in parallel
     this.scene.start('GameScene');
     this.scene.launch('UIScene');
+  }
+
+  private applyViewport(): void {
+    const { width, height } = this.scale;
+    const zoom = Math.min(
+      width / PreloadScene.BASE_WIDTH,
+      height / PreloadScene.BASE_HEIGHT
+    );
+    const roundedZoom = Math.max(0.5, Math.floor(zoom * 100) / 100);
+    this.cameras.main.setZoom(roundedZoom);
+    this.cameras.main.centerOn(
+      PreloadScene.BASE_WIDTH / 2,
+      PreloadScene.BASE_HEIGHT / 2
+    );
   }
 
   private generateAssets(): void {

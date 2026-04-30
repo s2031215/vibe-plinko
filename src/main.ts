@@ -3,13 +3,24 @@ import { PreloadScene } from './scenes/PreloadScene';
 import { GameScene } from './scenes/GameScene';
 import { UIScene } from './scenes/UIScene';
 
+const debugParams = new URLSearchParams(window.location.search);
+const isDebug = debugParams.get('debug') === '1';
+
+const setViewportHeight = () => {
+  const vh = window.innerHeight * 0.01;
+  document.documentElement.style.setProperty('--vh', `${vh}px`);
+};
+
+setViewportHeight();
+window.addEventListener('resize', setViewportHeight);
+
 const config: Phaser.Types.Core.GameConfig = {
   type: Phaser.AUTO,
   parent: 'game-container',
   width: 480,
   height: 854,
   scale: {
-    mode: Phaser.Scale.FIT,
+    mode: Phaser.Scale.RESIZE,
     autoCenter: Phaser.Scale.CENTER_BOTH,
   },
   backgroundColor: '#1A1E2A',
@@ -18,7 +29,7 @@ const config: Phaser.Types.Core.GameConfig = {
     default: 'matter',
     matter: {
       gravity: { x: 0, y: 1.0 }, // Adjusted to give ball more weight so it drops through pegs reliably
-      debug: true, // Turn on for collision visualization if needed
+      debug: isDebug,
     },
   },
   pixelArt: true, // No anti-aliasing

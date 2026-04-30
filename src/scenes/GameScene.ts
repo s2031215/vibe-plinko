@@ -2,6 +2,8 @@ import Phaser from 'phaser';
 import { RoundResultData } from '../rng/RoundResult';
 
 export class GameScene extends Phaser.Scene {
+  private static readonly BASE_WIDTH = 480;
+  private static readonly BASE_HEIGHT = 854;
   private _ball: Phaser.Physics.Matter.Sprite | undefined;
   private _extraBalls: Phaser.Physics.Matter.Sprite[] = [];
   private _activeBalls: Set<Phaser.Physics.Matter.Sprite> = new Set();
@@ -33,13 +35,16 @@ export class GameScene extends Phaser.Scene {
   }
 
   create() {
+    this.applyViewport();
+    this.scale.on('resize', this.applyViewport, this);
+
     // Scaffold out physics playfield, pegs, tunnel sensors
     this.createPlayfield();
     this.createPegGrid();
     this.createTunnels();
 
     // Set world bounds (left, top, right, bottom)
-    this.matter.world.setBounds(0, 0, 480, 854);
+    this.matter.world.setBounds(0, 0, GameScene.BASE_WIDTH, GameScene.BASE_HEIGHT);
 
     // Launching logic hooks
     this.events.on('launchBall', this.launchBall, this);
@@ -199,6 +204,14 @@ export class GameScene extends Phaser.Scene {
     }
   }
 
+  private applyViewport(): void {
+    const { width, height } = this.scale;
+    const zoom = Math.min(width / GameScene.BASE_WIDTH, height / GameScene.BASE_HEIGHT);
+    const roundedZoom = Math.max(0.5, Math.floor(zoom * 100) / 100);
+    this.cameras.main.setZoom(roundedZoom);
+    this.cameras.main.centerOn(GameScene.BASE_WIDTH / 2, GameScene.BASE_HEIGHT / 2);
+  }
+
   private createPegGrid() {
     // 9 cols even rows, 8 cols odd rows to make spacing wider
     // Y: 317 -> 648
@@ -344,6 +357,7 @@ export class GameScene extends Phaser.Scene {
 
     if (this._ball && this._ball.body && this._ball.body.isStatic) {
       this._ball.setPosition(spawnX, spawnY);
+      this.applyBallCenterOfGravity(this._ball, roundData);
     } else {
       if (this._ball) {
         this._ball.destroy();
@@ -360,6 +374,7 @@ export class GameScene extends Phaser.Scene {
       if (this._ball.body) {
         this.matter.body.set(this._ball.body as MatterJS.BodyType, 'sleepThreshold', -1);
       }
+      this.applyBallCenterOfGravity(this._ball, roundData);
     }
 
     this._ball.setStatic(false);
@@ -387,6 +402,7 @@ export class GameScene extends Phaser.Scene {
       if (extra.body) {
         this.matter.body.set(extra.body as MatterJS.BodyType, 'sleepThreshold', -1);
       }
+      this.applyBallCenterOfGravity(extra, roundData);
       this.applyBallCollisionGroup(extra, noBallCollision);
       extra.setVelocity(0, vy);
       this._extraBalls.push(extra);
@@ -394,7 +410,7 @@ export class GameScene extends Phaser.Scene {
     }
   }
 
-  public prepareBall(): void {
+  public prepareBall(roundData?: RoundResultData): void {
     this.clearAllBalls();
 
     const spawnX = this._springX;
@@ -412,6 +428,7 @@ export class GameScene extends Phaser.Scene {
     if (this._ball.body) {
       this.matter.body.set(this._ball.body as MatterJS.BodyType, 'sleepThreshold', -1);
     }
+    this.applyBallCenterOfGravity(this._ball, roundData);
 
     this._ball.setStatic(true);
     this._ball.setIgnoreGravity(true);
@@ -421,6 +438,24 @@ export class GameScene extends Phaser.Scene {
   public setSpringCompression(ratio: number): void {
     this._springCompression = Phaser.Math.Clamp(ratio, 0, 1);
     this.drawSpring();
+  }
+
+  private applyBallCenterOfGravity(
+    ball: Phaser.Physics.Matter.Sprite,
+    roundData?: RoundResultData
+  ): void {
+    const body = ball.body as MatterJS.BodyType | undefined;
+    if (!body) return;
+
+    const targetTunnel = roundData?.winningTunnels[0];
+    if (targetTunnel === undefined) return;
+
+    const clampedTunnel = Phaser.Math.Clamp(targetTunnel, 0, 11);
+    const ratio = clampedTunnel / 11;
+    const maxOffset = 2;
+    const offsetX = Math.round(Phaser.Math.Linear(-maxOffset, maxOffset, ratio));
+
+    this.matter.body.setCentre(body, { x: offsetX, y: 0 }, true);
   }
 
   private drawSpring(): void {
