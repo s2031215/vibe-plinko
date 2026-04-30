@@ -20,8 +20,6 @@ export class GameScene extends Phaser.Scene {
         tunnelIndex: number;
       }
     | undefined;
-  private _launchTime: number | undefined;
-  private _lastMotionTime: number | undefined;
   private readonly _springX: number = 453;
   private readonly _springTop: number = 668;
   private readonly _springBottom: number = 722;
@@ -82,8 +80,6 @@ export class GameScene extends Phaser.Scene {
         this.events.emit('failed_launch');
         this._ball.destroy();
         this._ball = undefined;
-        this._launchTime = undefined;
-        this._lastMotionTime = undefined;
       }
     }
   }
@@ -339,8 +335,6 @@ export class GameScene extends Phaser.Scene {
     this.sound.play('sfx_launch');
 
     this._currentRoundData = roundData;
-    this._launchTime = this.time.now;
-    this._lastMotionTime = this.time.now;
     this._pendingOutcome = undefined;
 
     this.clearExtraBalls();
@@ -355,7 +349,8 @@ export class GameScene extends Phaser.Scene {
     const compressionPixels = 14 * this._springCompression;
     const spawnY = this._springTop - 8 + compressionPixels;
 
-    if (this._ball && this._ball.body && this._ball.body.isStatic) {
+    const mainBody = this._ball?.body as MatterJS.BodyType | undefined;
+    if (this._ball && mainBody && mainBody.isStatic) {
       this._ball.setPosition(spawnX, spawnY);
       this.applyBallCenterOfGravity(this._ball, roundData);
     } else {
@@ -514,7 +509,7 @@ export class GameScene extends Phaser.Scene {
       const TUNNEL_X = 10;
       const TUNNEL_WIDTH = 426;
       const slotWidth = TUNNEL_WIDTH / 12;
-      const relativeX = this._ball.x - TUNNEL_X;
+      const relativeX = ball.x - TUNNEL_X;
 
       if (relativeX >= 0 && relativeX <= TUNNEL_WIDTH) {
         const tunnelIndex = Math.min(11, Math.max(0, Math.floor(relativeX / slotWidth)));
@@ -590,25 +585,6 @@ export class GameScene extends Phaser.Scene {
     });
   }
 
-  private forceRoundEnd(): void {
-    if (!this._ball) return;
-
-    this.clearAllBalls();
-
-    this.updateTunnels([]);
-
-    this.events.emit('round_complete', {
-      isWin: false,
-      multiplier: 0,
-      tunnelIndex: 0,
-    });
-
-    this._currentRoundData = undefined;
-    this._launchTime = undefined;
-    this._lastMotionTime = undefined;
-    this._pendingOutcome = undefined;
-  }
-
   private clearExtraBalls(): void {
     if (this._extraBalls.length === 0) return;
     for (const ball of this._extraBalls) {
@@ -643,7 +619,6 @@ export class GameScene extends Phaser.Scene {
 
     // Track motion time for debug/logging
     if (currentSpeed > 0.2) {
-      this._lastMotionTime = this.time.now;
       this._ballLastMotion.set(ball, this.time.now);
     }
 
@@ -695,8 +670,6 @@ export class GameScene extends Phaser.Scene {
     this.events.emit('round_complete', outcome);
 
     this._currentRoundData = undefined;
-    this._launchTime = undefined;
-    this._lastMotionTime = undefined;
     this._pendingOutcome = undefined;
     this._settlingBalls.clear();
   }
