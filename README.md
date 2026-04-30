@@ -1,6 +1,7 @@
 # SuperBall
 
 SuperBall is a browser-based arcade Plinko/Pinball game inspired by *Full Tilt! Pinball (1995)*. It uses Phaser 3 with Matter.js, and all visuals/audio are generated procedurally at runtime.
+<img width="512" height="873" alt="image" src="https://github.com/user-attachments/assets/11348250-67f1-4077-80ea-5eaa04721613" />
 
 ## Requirements
 
