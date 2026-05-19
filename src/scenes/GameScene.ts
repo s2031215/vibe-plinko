@@ -32,6 +32,7 @@ export class GameScene extends Phaser.Scene {
   protected _astronautBaseX: number = 210;
   private _astronautMoveDuration: number = 1400;
   private _mapTravelTriggered: boolean = false;
+  private _lastCredits: number | null = null;
 
   constructor(key: string = 'GameScene') {
     super(key);
@@ -208,8 +209,15 @@ export class GameScene extends Phaser.Scene {
   }
 
   private onCreditsUpdate(credits: number): void {
-    if (credits > 1000 && !this._mapTravelTriggered && this.scene.key === 'GameScene') {
+    if (this._lastCredits === null) {
+      this._lastCredits = credits;
+      return;
+    }
+
+    const crossedTravelThreshold = this._lastCredits <= 1000 && credits > 1000;
+    if (crossedTravelThreshold && !this._mapTravelTriggered && this.scene.key === 'GameScene') {
       this._mapTravelTriggered = true;
+      this._lastCredits = credits;
       if (this._astronaut) {
         if (this._astronautTween) {
           this._astronautTween.stop();
@@ -237,6 +245,8 @@ export class GameScene extends Phaser.Scene {
       }
       return;
     }
+
+    this._lastCredits = credits;
 
     const shouldMove = credits > 500;
     if (!this._astronaut) return;

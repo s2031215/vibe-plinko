@@ -4,9 +4,11 @@ import { GameScene } from './GameScene';
 export class MoonScene extends GameScene {
   private _moonRocks: Set<Phaser.Physics.Matter.Image> = new Set();
   private _sliderBodies: MatterJS.BodyType[] = [];
+  private _sliderTweens: Phaser.Tweens.Tween[] = [];
   private _moonRng: Phaser.Math.RandomDataGenerator = new Phaser.Math.RandomDataGenerator([
     `${Date.now()}`,
   ]);
+  private _onCollisionStart: ((event: MatterJS.IEventCollision<MatterJS.Body>) => void) | null = null;
 
   constructor() {
     super('MoonScene');
@@ -15,11 +17,14 @@ export class MoonScene extends GameScene {
   override create() {
     super.create();
     this.createMoonSliders();
-    this.matter.world.on('collisionstart', (event: MatterJS.IEventCollision<MatterJS.Body>) => {
+    this._onCollisionStart = (event: MatterJS.IEventCollision<MatterJS.Body>) => {
       for (const pair of event.pairs) {
         this.handleSliderCollision(pair.bodyA as MatterJS.BodyType, pair.bodyB as MatterJS.BodyType);
       }
-    });
+    };
+    this.matter.world.on('collisionstart', this._onCollisionStart);
+    this.events.once('shutdown', this.onShutdown, this);
+    this.events.once('destroy', this.onShutdown, this);
   }
 
   protected override createPlayfield() {
@@ -236,7 +241,7 @@ export class MoonScene extends GameScene {
 
       this._sliderBodies.push(sliderBody);
 
-      this.tweens.add({
+      const tween = this.tweens.add({
         targets: sliderRect,
         x: sliderBounds.maxX,
         duration: 2400 + index * 400,
@@ -259,7 +264,23 @@ export class MoonScene extends GameScene {
           });
         },
       });
+
+      this._sliderTweens.push(tween);
     });
+  }
+
+  private onShutdown(): void {
+    if (this._onCollisionStart) {
+      this.matter?.world?.off('collisionstart', this._onCollisionStart);
+      this._onCollisionStart = null;
+    }
+
+    for (const tween of this._sliderTweens) {
+      tween.stop();
+      tween.remove();
+    }
+    this._sliderTweens = [];
+    this._sliderBodies = [];
   }
 
   private handleSliderCollision(bodyA: MatterJS.BodyType, bodyB: MatterJS.BodyType): void {
