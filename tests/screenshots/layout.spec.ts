@@ -125,4 +125,17 @@ test.describe('SuperBall Layout Screenshots', () => {
 
     expect(fs.existsSync(screenshotPath)).toBeTruthy();
   });
+
+  test('06-moon-map-canvas', async ({ page }) => {
+    await page.waitForTimeout(1000);
+
+    // Toggle to Moon scene
+    await page.keyboard.press('M');
+    await page.waitForTimeout(800);
+
+    const screenshotPath = 'tests/screenshots/output/06-moon-map-canvas.png';
+    await page.locator('canvas').screenshot({ path: screenshotPath });
+
+    expect(fs.existsSync(screenshotPath)).toBeTruthy();
+  });
 });

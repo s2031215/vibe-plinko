@@ -2,6 +2,7 @@ import Phaser from 'phaser';
 import { PreloadScene } from './scenes/PreloadScene';
 import { GameScene } from './scenes/GameScene';
 import { UIScene } from './scenes/UIScene';
+import { MoonScene } from './scenes/MoonScene';
 
 const debugParams = new URLSearchParams(window.location.search);
 const isDebug = debugParams.get('debug') === '1';
@@ -24,7 +25,7 @@ const config: Phaser.Types.Core.GameConfig = {
     autoCenter: Phaser.Scale.CENTER_BOTH,
   },
   backgroundColor: '#1A1E2A',
-  scene: [PreloadScene, GameScene, UIScene],
+  scene: [PreloadScene, GameScene, UIScene, MoonScene],
   physics: {
     default: 'matter',
     matter: {

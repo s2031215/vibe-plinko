@@ -27,6 +27,8 @@ export class UIScene extends Phaser.Scene {
 
   private _roundData: RoundResultData | undefined;
   private _gameOverContainer?: Phaser.GameObjects.Container;
+  private _activeGameSceneKey: 'GameScene' | 'MoonScene' = 'GameScene';
+  private _travelLocked: boolean = false;
 
   constructor() {
     super('UIScene');
@@ -50,6 +52,9 @@ export class UIScene extends Phaser.Scene {
       this._debugMultiBall = !this._debugMultiBall;
       this.setStatusText(this._debugMultiBall ? 'DEBUG: MULTIBALL' : 'DEBUG: OFF', '#ffb300');
     });
+
+    this.input.keyboard?.on('keydown-F', this.onCheatCredits, this);
+    this.input.keyboard?.on('keydown-M', this.onToggleMap, this);
   }
 
   override update(time: number, _delta: number): void {
@@ -63,7 +68,7 @@ export class UIScene extends Phaser.Scene {
       this._leverHighlight.y = newY;
 
       this._chargeBarFill.scaleY = ratio;
-      this.scene.get('GameScene').events.emit('spring_charge', ratio);
+      this.emitToGameScene('spring_charge', ratio);
       if (ratio === 1) {
         this.setStatusText('MAX POWER!', '#ff2200');
         this._chargeBarFill.fillColor = 0xff2200;
@@ -80,30 +85,41 @@ export class UIScene extends Phaser.Scene {
     this._statusText = this.add
       .text(240, 20, 'INSERT BEADS', {
         fontFamily: '"Press Start 2P"',
-        fontSize: '12px',
+        fontSize: '14px',
         color: '#b0b8c8',
       })
       .setOrigin(0.5);
 
     // Logo badge
-    this.add.rectangle(80, 60, 140, 60, 0x050b14).setOrigin(0.5);
-    this.add.rectangle(80, 60, 134, 54, 0x0d1520).setOrigin(0.5); // inner inset
+    this.add.rectangle(70, 60, 120, 56, 0x050b14).setOrigin(0.5);
+    this.add.rectangle(70, 60, 114, 50, 0x0d1520).setOrigin(0.5); // inner inset
     this.add
-      .text(80, 60, 'SUPER\nBALL', {
+      .text(70, 60, 'SUPER\nBALL', {
         fontFamily: '"Press Start 2P"',
-        fontSize: '16px',
+        fontSize: '14px',
         color: '#b0b8c8',
         align: 'center',
       })
       .setOrigin(0.5);
 
-    // Score / credits display (shifted to center-right)
-    this.add.rectangle(330, 60, 180, 60, 0x000000).setOrigin(0.5);
+    // Score / credits display (shifted to right)
+    this.add.rectangle(370, 60, 150, 56, 0x000000).setOrigin(0.5);
     this._scoreText = this.add
-      .text(330, 60, this._credits.toString().padStart(4, '0'), {
+      .text(370, 60, this._credits.toString().padStart(4, '0'), {
         fontFamily: '"Press Start 2P"',
-        fontSize: '40px',
+        fontSize: '36px',
         color: '#ff2200',
+      })
+      .setOrigin(0.5);
+
+    // Bet x multiplier display (same row as logo)
+    this.add.rectangle(215, 60, 150, 56, 0x0d1520).setOrigin(0.5);
+    this._potentialWinText = this.add
+      .text(215, 60, 'BET x MULT\n0 x 0 = 0', {
+        fontFamily: '"Press Start 2P"',
+        fontSize: '13px',
+        color: '#b0b8c8',
+        align: 'center',
       })
       .setOrigin(0.5);
 
@@ -111,10 +127,10 @@ export class UIScene extends Phaser.Scene {
     const mults = [2, 4, 6, 8, 10];
     this._multiplierLEDs = [];
     mults.forEach((m, idx) => {
-      const led = this.add.image(140 + idx * 50, 120, 'led_unlit');
+      const led = this.add.image(120 + idx * 60, 126, 'led_unlit');
       this._multiplierLEDs.push(led);
       this.add
-        .text(140 + idx * 50, 140, m + 'X', {
+        .text(120 + idx * 60, 142, m + 'X', {
           fontFamily: '"Press Start 2P"',
           fontSize: '10px',
           color: '#b0b8c8',
@@ -129,60 +145,59 @@ export class UIScene extends Phaser.Scene {
     this.add.rectangle(0, BOTTOM_Y, 480, 120, 0x1a1e2a).setOrigin(0);
     this.add.rectangle(0, BOTTOM_Y, 480, 3, 0xffb300).setOrigin(0);
 
-    // Potential win indicator
-    this.add.rectangle(90, BOTTOM_Y + 60, 140, 60, 0x0d1520).setOrigin(0.5);
-    this._potentialWinText = this.add
-      .text(90, BOTTOM_Y + 60, 'BET x MULT\n0 x 0 = 0', {
-        fontFamily: '"Press Start 2P"',
-        fontSize: '11px',
-        color: '#b0b8c8',
-        align: 'center',
-      })
-      .setOrigin(0.5);
+    // Preset bet chips (single row)
+    const chipValues = [5, 10, 50, 100];
+    const chipStartX = 70;
+    const chipY = BOTTOM_Y + 50;
+    const chipSpacing = 80;
+    const chipWidth = 70;
+    const chipHeight = 56;
 
-    // Raise button (deep blue)
-    const raiseBtn = this.add
-      .rectangle(240, BOTTOM_Y + 74, 140, 60, 0x2a4a8a)
-      .setInteractive({ cursor: 'pointer' });
-    raiseBtn.setStrokeStyle(4, 0x1a3a6a);
-    this.add
-      .text(240, BOTTOM_Y + 74, 'RAISE', {
-        fontFamily: '"Press Start 2P"',
-        fontSize: '14px',
-        color: '#ffffff',
-      })
-      .setOrigin(0.5);
+    chipValues.forEach((value, index) => {
+      const chipX = chipStartX + index * chipSpacing;
+      const chip = this.add
+        .rectangle(chipX, chipY, chipWidth, chipHeight, 0x2a4a8a)
+        .setInteractive({ cursor: 'pointer' });
+      chip.setStrokeStyle(4, 0x1a3a6a);
+      this.add
+        .text(chipX, chipY, `+${value}`, {
+          fontFamily: '"Press Start 2P"',
+          fontSize: '14px',
+          color: '#ffffff',
+        })
+        .setOrigin(0.5);
 
-    raiseBtn.on('pointerdown', this.onRaiseBet, this);
+      chip.on('pointerdown', () => this.onBetChip(value));
+    });
+
 
     // Charge bar (hidden initially)
-    this.add.rectangle(410, BOTTOM_Y + 60, 10, 100, 0x050b14).setOrigin(0.5);
+    this.add.rectangle(416, BOTTOM_Y + 56, 10, 96, 0x050b14).setOrigin(0.5);
     this._chargeBarFill = this.add
-      .rectangle(410, BOTTOM_Y + 110, 10, 100, 0xffb300)
+      .rectangle(416, BOTTOM_Y + 104, 10, 96, 0xffb300)
       .setOrigin(0.5, 1);
     this._chargeBarFill.scaleY = 0;
 
     // Lever slot background
-    this.add.rectangle(453, BOTTOM_Y + 60, 12, 100, 0x050b14).setOrigin(0.5);
+    this.add.rectangle(458, BOTTOM_Y + 56, 12, 96, 0x050b14).setOrigin(0.5);
     // Lever shaft
-    this.add.rectangle(453, BOTTOM_Y + 50, 4, 80, 0x888ea0).setOrigin(0.5);
+    this.add.rectangle(458, BOTTOM_Y + 46, 4, 76, 0x888ea0).setOrigin(0.5);
     // Lever handle (resting at top of slot)
-    this._leverHandle = this.add.circle(453, BOTTOM_Y + 20, 14, 0x3a3f50); // main handle
-    this._leverHighlight = this.add.circle(453, BOTTOM_Y + 20, 6, 0x4a5060); // handle highlight
+    this._leverHandle = this.add.circle(458, BOTTOM_Y + 16, 14, 0x3a3f50); // main handle
+    this._leverHighlight = this.add.circle(458, BOTTOM_Y + 16, 6, 0x4a5060); // handle highlight
 
-    this._leverBaseY = BOTTOM_Y + 20;
+    this._leverBaseY = BOTTOM_Y + 16;
     this._leverMaxPull = 70;
 
     // Interactive hit zone for the lever
     const leverHitZone = this.add
-      .zone(453, BOTTOM_Y + 60, 50, 120)
+      .zone(458, BOTTOM_Y + 56, 50, 120)
       .setInteractive({ cursor: 'pointer' });
     leverHitZone.on('pointerdown', this.onLeverDown, this);
     this.input.on('pointerup', this.onLeverUp, this);
 
     // Listen for events from GameScene
-    this.scene.get('GameScene').events.on('round_complete', this.onRoundComplete, this);
-    this.scene.get('GameScene').events.on('failed_launch', this.onFailedLaunch, this);
+    this.bindGameSceneEvents(this._activeGameSceneKey);
   }
 
   private onInsertBeads(): void {
@@ -195,7 +210,7 @@ export class UIScene extends Phaser.Scene {
 
         this._roundData = rollRound();
 
-        this.scene.get('GameScene').events.emit('prepare_ball', this._roundData);
+        this.emitToGameScene('prepare_ball', this._roundData);
 
         if (this._potentialWinText) {
           this._potentialWinText.setText(
@@ -213,18 +228,16 @@ export class UIScene extends Phaser.Scene {
         });
 
         // Tell GameScene to update the tunnel colors
-        this.scene
-          .get('GameScene')
-          .events.emit('ui_update_tunnels', this._roundData.winningTunnels);
+        this.emitToGameScene('ui_update_tunnels', this._roundData.winningTunnels);
       }
     }
   }
 
-  private onRaiseBet(): void {
+  private onBetChip(amount: number): void {
     if (this._state === 'betting') {
-      if (this._credits >= 5) {
-        this.updateCredits(this._credits - 5);
-        this._betAmount += 5;
+      if (this._credits >= amount) {
+        this.updateCredits(this._credits - amount);
+        this._betAmount += amount;
 
         if (this._roundData && this._potentialWinText) {
           this._potentialWinText.setText(
@@ -237,8 +250,64 @@ export class UIScene extends Phaser.Scene {
     }
   }
 
+  private onCheatCredits(): void {
+    this.updateCredits(this._credits + 500);
+  }
+
+  private onToggleMap(): void {
+    const isMoonActive = this.scene.isActive('MoonScene');
+    const isGameActive = this.scene.isActive('GameScene');
+
+    if (isMoonActive) {
+      this.scene.stop('MoonScene');
+      this.scene.launch('GameScene');
+      this.setActiveGameScene('GameScene');
+      return;
+    }
+
+    if (isGameActive) {
+      this.scene.stop('GameScene');
+      this.scene.launch('MoonScene');
+      this.setActiveGameScene('MoonScene');
+      return;
+    }
+  }
+
+  private setActiveGameScene(key: 'GameScene' | 'MoonScene'): void {
+    if (this._activeGameSceneKey === key) return;
+    this.unbindGameSceneEvents(this._activeGameSceneKey);
+    this._activeGameSceneKey = key;
+    this.bindGameSceneEvents(this._activeGameSceneKey);
+    this.emitToGameScene('ui_update_credits', this._credits);
+    const tunnels = this._roundData ? this._roundData.winningTunnels : [];
+    this.time.delayedCall(0, () => {
+      this.emitToGameScene('ui_update_tunnels', tunnels);
+    });
+  }
+
+  private bindGameSceneEvents(key: 'GameScene' | 'MoonScene'): void {
+    const scene = this.scene.get(key);
+    scene.events.on('round_complete', this.onRoundComplete, this);
+    scene.events.on('failed_launch', this.onFailedLaunch, this);
+    scene.events.on('map_travel_complete', this.onMapTravelComplete, this);
+    scene.events.on('map_travel_begin', this.onMapTravelBegin, this);
+  }
+
+  private unbindGameSceneEvents(key: 'GameScene' | 'MoonScene'): void {
+    const scene = this.scene.get(key);
+    scene.events.off('round_complete', this.onRoundComplete, this);
+    scene.events.off('failed_launch', this.onFailedLaunch, this);
+    scene.events.off('map_travel_complete', this.onMapTravelComplete, this);
+    scene.events.off('map_travel_begin', this.onMapTravelBegin, this);
+  }
+
+  private emitToGameScene(eventName: string, ...args: unknown[]): void {
+    const scene = this.scene.get(this._activeGameSceneKey);
+    scene.events.emit(eventName, ...args);
+  }
+
   private onLeverDown(): void {
-    if (this._state === 'betting') {
+    if (this._state === 'betting' && !this._travelLocked) {
       this._state = 'charging';
       this._chargeStartTime = this.time.now;
       this.setStatusText('CHARGING...', '#ffb300');
@@ -247,11 +316,11 @@ export class UIScene extends Phaser.Scene {
   }
 
   private onLeverUp(): void {
-    if (this._state === 'charging') {
+    if (this._state === 'charging' && !this._travelLocked) {
       this._state = 'in_flight';
       this.setStatusText('IN FLIGHT...', '#b0b8c8');
       this._chargeBarFill.scaleY = 0;
-      this.scene.get('GameScene').events.emit('spring_charge', 0);
+      this.emitToGameScene('spring_charge', 0);
 
       const chargeDuration = this.time.now - this._chargeStartTime;
       const power = Phaser.Math.Clamp(chargeDuration / 1500, 0.08, 1.0); // max 1.5s, min 8%
@@ -262,7 +331,7 @@ export class UIScene extends Phaser.Scene {
 
       // Tell game scene to launch
       const ballCount = this._debugMultiBall ? 10 : 1;
-      this.scene.get('GameScene').events.emit('launchBall', power, this._roundData, ballCount);
+      this.emitToGameScene('launchBall', power, this._roundData, ballCount);
     }
   }
 
@@ -334,6 +403,21 @@ export class UIScene extends Phaser.Scene {
     } else {
       // Automatically "loop" and insert beads if the player has credits!
       this.onInsertBeads();
+    }
+  }
+
+  private onMapTravelBegin(): void {
+    this._travelLocked = true;
+    this._state = 'idle';
+    this.setStatusText('TRAVELING...', '#ffb300');
+  }
+
+  private onMapTravelComplete(): void {
+    this._travelLocked = false;
+    if (this._activeGameSceneKey !== 'MoonScene') {
+      this.scene.stop('GameScene');
+      this.scene.launch('MoonScene');
+      this.setActiveGameScene('MoonScene');
     }
   }
 
@@ -453,5 +537,6 @@ export class UIScene extends Phaser.Scene {
     if (this._scoreText) {
       this._scoreText.setText(this._credits.toString().padStart(4, '0'));
     }
+    this.emitToGameScene('ui_update_credits', this._credits);
   }
 }

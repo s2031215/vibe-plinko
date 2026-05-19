@@ -93,6 +93,16 @@ export class PreloadScene extends Phaser.Scene {
     g.fillCircle(16, 16, 4);
     g.generateTexture('peg_bloom', 32, 32);
 
+    // 3b. Moon Rock Bloom (32x32)
+    g.clear();
+    g.fillStyle(0x9fb5c9, 0.3);
+    g.fillCircle(16, 16, 14);
+    g.fillStyle(0xbad0df, 0.7);
+    g.fillCircle(16, 16, 8);
+    g.fillStyle(0xffffff, 0.9);
+    g.fillCircle(16, 16, 4);
+    g.generateTexture('moon_bloom', 32, 32);
+
     // 4. Lit Tunnel LED (20x20)
     g.clear();
     g.fillStyle(0xff1a1a, 0.12);
@@ -133,6 +143,56 @@ export class PreloadScene extends Phaser.Scene {
     g.fillStyle(0xff1a1a);
     g.fillRect(29, 0, 4, 4); // red tip
     g.generateTexture('astronaut', 64, 64);
+
+    // 5b. Moon Rock Peg (14x14)
+    g.clear();
+    g.fillStyle(0x2b313a, 0.9);
+    g.fillCircle(8, 8, 6);
+    g.fillStyle(0x6a6e78);
+    g.fillCircle(7, 7, 5);
+    g.fillStyle(0x9fb5c9);
+    g.fillCircle(6, 6, 3);
+    g.fillStyle(0xffffff, 0.7);
+    g.fillRect(5, 5, 2, 2);
+    g.generateTexture('moon_rock', 14, 14);
+
+    // 5c. Moon Rock Peg (Big 20x20)
+    g.clear();
+    g.fillStyle(0x2b313a, 0.9);
+    g.fillCircle(10, 10, 8);
+    g.fillStyle(0x6a6e78);
+    g.fillCircle(9, 9, 7);
+    g.fillStyle(0x9fb5c9);
+    g.fillCircle(8, 8, 5);
+    g.fillStyle(0xffffff, 0.7);
+    g.fillRect(6, 6, 3, 3);
+    g.generateTexture('moon_rock_big', 20, 20);
+
+    // 5d. Moon Background (64x64)
+    g.clear();
+    g.fillStyle(0x0b1420);
+    g.fillRect(0, 0, 64, 64);
+    g.fillStyle(0x111c2b, 0.9);
+    g.fillRect(0, 0, 64, 64);
+    g.fillStyle(0x1a2433, 0.7);
+    for (let i = 0; i < 60; i++) {
+      g.fillRect(Phaser.Math.Between(0, 63), Phaser.Math.Between(0, 63), 1, 1);
+    }
+    g.fillStyle(0x2a3646, 0.5);
+    for (let i = 0; i < 10; i++) {
+      const cx = Phaser.Math.Between(6, 58);
+      const cy = Phaser.Math.Between(6, 58);
+      const r = Phaser.Math.Between(6, 14);
+      g.fillCircle(cx, cy, r);
+    }
+    g.fillStyle(0x0f1722, 0.6);
+    for (let i = 0; i < 8; i++) {
+      const cx = Phaser.Math.Between(8, 56);
+      const cy = Phaser.Math.Between(8, 56);
+      const r = Phaser.Math.Between(4, 10);
+      g.fillCircle(cx, cy, r);
+    }
+    g.generateTexture('moon_bg', 64, 64);
 
     // 6. Repeating Tile Texture (8x8)
     g.clear();

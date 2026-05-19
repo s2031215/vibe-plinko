@@ -4,7 +4,7 @@ import { RoundResultData } from '../rng/RoundResult';
 export class GameScene extends Phaser.Scene {
   private static readonly BASE_WIDTH = 480;
   private static readonly BASE_HEIGHT = 854;
-  private _ball: Phaser.Physics.Matter.Sprite | undefined;
+  protected _ball: Phaser.Physics.Matter.Sprite | undefined;
   private _extraBalls: Phaser.Physics.Matter.Sprite[] = [];
   private _activeBalls: Set<Phaser.Physics.Matter.Sprite> = new Set();
   private _noBallCollisionGroup: number | undefined;
@@ -24,12 +24,17 @@ export class GameScene extends Phaser.Scene {
   private readonly _springTop: number = 668;
   private readonly _springBottom: number = 722;
   private _springCompression: number = 0;
-  private _springGraphics!: Phaser.GameObjects.Graphics;
+  protected _springGraphics!: Phaser.GameObjects.Graphics;
 
   private _tunnelLEDs: Phaser.GameObjects.Image[] = [];
+  protected _astronaut?: Phaser.GameObjects.Image;
+  private _astronautTween: Phaser.Tweens.Tween | null = null;
+  protected _astronautBaseX: number = 210;
+  private _astronautMoveDuration: number = 1400;
+  private _mapTravelTriggered: boolean = false;
 
-  constructor() {
-    super('GameScene');
+  constructor(key: string = 'GameScene') {
+    super(key);
   }
 
   create() {
@@ -49,6 +54,7 @@ export class GameScene extends Phaser.Scene {
     this.events.on('prepare_ball', this.prepareBall, this);
     this.events.on('spring_charge', this.setSpringCompression, this);
     this.events.on('ui_update_tunnels', this.updateTunnels, this);
+    this.events.on('ui_update_credits', this.onCreditsUpdate, this);
 
     this.matter.world.on('collisionstart', (event: MatterJS.IEventCollision<MatterJS.Body>) => {
       for (const pair of event.pairs) {
@@ -84,7 +90,7 @@ export class GameScene extends Phaser.Scene {
     }
   }
 
-  private createPlayfield() {
+  protected createPlayfield() {
     // Backgrounds
     // Art Zone (154 -> 317)
     this.add.rectangle(10, 154, 460, 163, 0x0d2040).setOrigin(0);
@@ -190,7 +196,8 @@ export class GameScene extends Phaser.Scene {
     // (Removed old thin 10px ceiling wall since the new 50px thick one is declared above)
 
     // Astronaut Mascot in Art Zone
-    this.add.image(210, 235, 'astronaut'); // shifted slightly left
+    this._astronautBaseX = 210;
+    this._astronaut = this.add.image(this._astronautBaseX, 235, 'astronaut'); // shifted slightly left
 
     // Draw 28 deterministic stars in art zone
     const rng = new Phaser.Math.RandomDataGenerator('stars_seed');
@@ -200,7 +207,74 @@ export class GameScene extends Phaser.Scene {
     }
   }
 
-  private applyViewport(): void {
+  private onCreditsUpdate(credits: number): void {
+    if (credits > 1000 && !this._mapTravelTriggered && this.scene.key === 'GameScene') {
+      this._mapTravelTriggered = true;
+      if (this._astronaut) {
+        if (this._astronautTween) {
+          this._astronautTween.stop();
+          this._astronautTween.remove();
+          this._astronautTween = null;
+        }
+        this.events.emit('map_travel_begin');
+        this.tweens.add({
+          targets: this._astronaut,
+          x: this._astronautBaseX + 40,
+          y: 170,
+          alpha: 0,
+          duration: 1000,
+          ease: 'Cubic.easeIn',
+          onUpdate: () => {
+            if (this._astronaut) {
+              this._astronaut.x = Math.round(this._astronaut.x);
+              this._astronaut.y = Math.round(this._astronaut.y);
+            }
+          },
+          onComplete: () => {
+            this.events.emit('map_travel_complete');
+          },
+        });
+      }
+      return;
+    }
+
+    const shouldMove = credits > 500;
+    if (!this._astronaut) return;
+
+    if (shouldMove) {
+      const step = Phaser.Math.Clamp(Math.floor((credits - 500) / 100), 0, 5);
+      const duration = Math.max(600, 1400 - step * 160);
+      if (this._astronautTween?.isPlaying() && this._astronautMoveDuration === duration) return;
+
+      if (this._astronautTween) {
+        this._astronautTween.stop();
+        this._astronautTween.remove();
+        this._astronautTween = null;
+      }
+      this._astronautMoveDuration = duration;
+      this._astronautTween = this.tweens.add({
+        targets: this._astronaut,
+        x: this._astronautBaseX + 28,
+        duration: this._astronautMoveDuration,
+        yoyo: true,
+        repeat: -1,
+        ease: 'Sine.easeInOut',
+        onUpdate: () => {
+          if (this._astronaut) this._astronaut.x = Math.round(this._astronaut.x);
+        },
+      });
+      return;
+    }
+
+    if (this._astronautTween) {
+      this._astronautTween.stop();
+      this._astronautTween.remove();
+      this._astronautTween = null;
+    }
+    this._astronaut.x = this._astronautBaseX;
+  }
+
+  protected applyViewport(): void {
     const { width, height } = this.scale;
     const zoom = Math.min(width / GameScene.BASE_WIDTH, height / GameScene.BASE_HEIGHT);
     const roundedZoom = Math.max(0.5, Math.floor(zoom * 100) / 100);
@@ -208,7 +282,7 @@ export class GameScene extends Phaser.Scene {
     this.cameras.main.centerOn(GameScene.BASE_WIDTH / 2, GameScene.BASE_HEIGHT / 2);
   }
 
-  private createPegGrid() {
+  protected createPegGrid() {
     // 9 cols even rows, 8 cols odd rows to make spacing wider
     // Y: 317 -> 648
     const PLAYFIELD_X1 = 10;
@@ -242,7 +316,7 @@ export class GameScene extends Phaser.Scene {
     }
   }
 
-  private createTunnels() {
+  protected createTunnels() {
     // 12 slots, red LEDs
     // Y: 648 -> 735
     const TUNNEL_Y = 648;
@@ -453,7 +527,7 @@ export class GameScene extends Phaser.Scene {
     this.matter.body.setCentre(body, { x: offsetX, y: 0 }, true);
   }
 
-  private drawSpring(): void {
+  protected drawSpring(): void {
     if (!this._springGraphics) return;
 
     const springX = this._springX;
@@ -518,7 +592,7 @@ export class GameScene extends Phaser.Scene {
     }
   }
 
-  private checkPegCollision(bodyA: MatterJS.BodyType, bodyB: MatterJS.BodyType): void {
+  protected checkPegCollision(bodyA: MatterJS.BodyType, bodyB: MatterJS.BodyType): void {
     if (!this._ball) return;
 
     const isBallA = bodyA.gameObject === this._ball;
@@ -533,7 +607,7 @@ export class GameScene extends Phaser.Scene {
     }
   }
 
-  private triggerPegBloom(pegImage: Phaser.Physics.Matter.Image): void {
+  protected triggerPegBloom(pegImage: Phaser.Physics.Matter.Image): void {
     this.sound.play('sfx_peg', { volume: 0.5 });
 
     // 1. Create a bloom sprite exactly over the peg
