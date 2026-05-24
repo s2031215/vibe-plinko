@@ -67,11 +67,11 @@ export class GameScene extends Phaser.Scene {
 
   override update(_time: number, _delta: number): void {
     // Expose ball coordinates for e2e tests
-    if (this._ball) {
+    if (this._ball && this._ball.body) {
       (window as any).debug_ball_x = this._ball.x;
       (window as any).debug_ball_y = this._ball.y;
-      (window as any).debug_ball_vx = this._ball.body?.velocity.x;
-      (window as any).debug_ball_vy = this._ball.body?.velocity.y;
+      (window as any).debug_ball_vx = this._ball.body.velocity.x;
+      (window as any).debug_ball_vy = this._ball.body.velocity.y;
 
       const activeBalls = this._activeBalls.size > 0 ? Array.from(this._activeBalls) : [this._ball];
       for (const ball of activeBalls) {
@@ -83,7 +83,7 @@ export class GameScene extends Phaser.Scene {
       }
 
       // Failed launch detection (fell back down shooter lane)
-      if (this._ball && this._ball.y > 740 && this._ball.x > 430) {
+      if (this._ball && this._ball.body && this._ball.y > 740 && this._ball.x > 430) {
         this.events.emit('failed_launch');
         this._ball.destroy();
         this._ball = undefined;
@@ -332,6 +332,8 @@ export class GameScene extends Phaser.Scene {
     const TUNNEL_Y = 648;
     const TUNNEL_HEIGHT = 86;
     const TUNNEL_WIDTH = 426;
+
+    this._tunnelLEDs = [];
 
     this.add.rectangle(10, TUNNEL_Y, TUNNEL_WIDTH, TUNNEL_HEIGHT, 0x050b14).setOrigin(0);
 

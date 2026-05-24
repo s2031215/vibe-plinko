@@ -269,6 +269,7 @@ export class UIScene extends Phaser.Scene {
   private onToggleMap(): void {
     if (this._travelLocked) return;
     if (!this._mapSelectContainer) return;
+    this.ensureUiOnTop();
     const isVisible = this._mapSelectContainer.visible;
     this._mapSelectContainer.setVisible(!isVisible);
   }
@@ -279,12 +280,17 @@ export class UIScene extends Phaser.Scene {
     this._travelLocked = true;
 
     const prevScene = this._activeGameSceneKey;
+    this._roundData = undefined;
+    this._betAmount = 0;
     this.scene.stop(prevScene);
     this.scene.launch(nextScene);
-    this.setActiveGameScene(nextScene);
-    this.resetForMapSwitch();
-    this._mapSelectContainer?.setVisible(false);
-    this._travelLocked = false;
+    this.waitForSceneReady(nextScene, () => {
+      this.setActiveGameScene(nextScene);
+      this.ensureUiOnTop();
+      this.resetForMapSwitch();
+      this._mapSelectContainer?.setVisible(false);
+      this._travelLocked = false;
+    });
   }
 
   private setActiveGameScene(key: 'GameScene' | 'MoonScene'): void {
@@ -444,6 +450,9 @@ export class UIScene extends Phaser.Scene {
     this.time.delayedCall(50, () => {
       if (this._credits >= 5) {
         this.onInsertBeads();
+        if (this._roundData) {
+          this.emitToGameScene('ui_update_tunnels', this._roundData.winningTunnels);
+        }
       }
     });
   }
@@ -474,11 +483,34 @@ export class UIScene extends Phaser.Scene {
   private onMapTravelComplete(): void {
     this._travelLocked = false;
     if (this._activeGameSceneKey !== 'MoonScene') {
+      this._roundData = undefined;
+      this._betAmount = 0;
       this.scene.stop('GameScene');
       this.scene.launch('MoonScene');
-      this.setActiveGameScene('MoonScene');
-      this.resetForMapSwitch();
+      this.waitForSceneReady('MoonScene', () => {
+        this.setActiveGameScene('MoonScene');
+        this.ensureUiOnTop();
+        this.resetForMapSwitch();
+      });
     }
+  }
+
+  private ensureUiOnTop(): void {
+    this.scene.bringToTop('UIScene');
+  }
+
+  private waitForSceneReady(
+    sceneKey: 'GameScene' | 'MoonScene',
+    callback: () => void
+  ): void {
+    const scene = this.scene.get(sceneKey);
+    if (scene.sys?.isActive()) {
+      callback();
+      return;
+    }
+    scene.events.once(Phaser.Scenes.Events.CREATE, () => {
+      callback();
+    });
   }
 
   private playBeadWinFX(): void {

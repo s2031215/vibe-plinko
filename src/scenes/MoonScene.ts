@@ -9,12 +9,14 @@ export class MoonScene extends GameScene {
     `${Date.now()}`,
   ]);
   private _onCollisionStart: ((event: MatterJS.IEventCollision<MatterJS.Body>) => void) | null = null;
+  private _isShuttingDown: boolean = false;
 
   constructor() {
     super('MoonScene');
   }
 
   override create() {
+    this._isShuttingDown = false;
     super.create();
     this.createMoonSliders();
     this._onCollisionStart = (event: MatterJS.IEventCollision<MatterJS.Body>) => {
@@ -250,15 +252,17 @@ export class MoonScene extends GameScene {
         repeat: -1,
         ease: 'Sine.easeInOut',
         onUpdate: () => {
+          if (this._isShuttingDown) return;
           const body = sliderBody;
-          if (!body) return;
-          this.matter.body.setPosition(body, {
+          if (!body || !body.position) return;
+          this.matter?.body?.setPosition(body, {
             x: Math.round(sliderRect.x),
             y: Math.round(sliderRect.y),
           });
         },
         onRepeat: () => {
-          this.matter.body.setPosition(sliderBody, {
+          if (this._isShuttingDown) return;
+          this.matter?.body?.setPosition(sliderBody, {
             x: Math.round(sliderRect.x),
             y: Math.round(sliderRect.y),
           });
@@ -270,6 +274,7 @@ export class MoonScene extends GameScene {
   }
 
   private onShutdown(): void {
+    this._isShuttingDown = true;
     if (this._onCollisionStart) {
       this.matter?.world?.off('collisionstart', this._onCollisionStart);
       this._onCollisionStart = null;
@@ -284,11 +289,13 @@ export class MoonScene extends GameScene {
   }
 
   private handleSliderCollision(bodyA: MatterJS.BodyType, bodyB: MatterJS.BodyType): void {
+    if (this._isShuttingDown) return;
     const sliderBody = this.getSliderBody(bodyA, bodyB);
     if (!sliderBody) return;
 
     const ballBody = bodyA.label === 'ball' ? bodyA : bodyB.label === 'ball' ? bodyB : undefined;
     if (!ballBody) return;
+    if (!ballBody.position) return;
 
     const velocity = ballBody.velocity;
     if (!velocity) return;
@@ -300,7 +307,7 @@ export class MoonScene extends GameScene {
     const dirY = -Math.cos(angle);
     const nextVx = Phaser.Math.Clamp(velocity.x + dirX * speed, -9, 9);
     const nextVy = Phaser.Math.Clamp(velocity.y + dirY * speed, -13, 6);
-    this.matter.body.setVelocity(ballBody, { x: nextVx, y: nextVy });
+    this.matter?.body?.setVelocity(ballBody, { x: nextVx, y: nextVy });
   }
 
   private getSliderBody(bodyA: MatterJS.BodyType, bodyB: MatterJS.BodyType): MatterJS.BodyType | undefined {
